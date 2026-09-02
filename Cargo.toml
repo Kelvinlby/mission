@@ -20,3 +20,4 @@ shell-words = "1.1"
 sysinfo = "0.37"
 unicode-width = "0.2"
 vt100 = "0.16"
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }

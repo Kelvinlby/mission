@@ -35,7 +35,7 @@ cargo install --path .
 
 ## Sessions
 
-Detach with `Ctrl+D`. Detaching never stops the command. `Ctrl+Z` stops the command before closing the dashboard.
+Detach with `Esc`. Detaching never stops the command. `Ctrl+Z` stops the command before closing the dashboard.
 
 ```console
 mission --list
@@ -50,9 +50,11 @@ Terminal output is retained at `$XDG_STATE_HOME/mission/sessions/<id>/terminal.l
 | Key | Action |
 | --- | --- |
 | `Tab`, `Shift+Tab` | Cycle through tabs |
-| `Ctrl+C` | Copy the full terminal scrollback without ANSI styling or the timestamp gutter (via OSC 52) |
+| `Ctrl+C` | Copy the full terminal scrollback without ANSI styling or the timestamp gutter (system clipboard, falling back to OSC 52) |
 | `Ctrl+X` | Stop the process, escalating from `SIGINT` to `SIGTERM` and then `SIGKILL` |
-| `Ctrl+D` | Detach safely and leave the process running |
+| `Ctrl+R` | Rerun the command in this session, stopping the current process first |
+| `Ctrl+S` | Save the session log to the save directory (Settings tab; defaults to the platform data directory) |
+| `Esc` | Detach safely and leave the process running |
 | `Ctrl+Z` | Stop the process, close the dashboard, and detach |
 | Mouse click | Select tabs and settings |
 | Arrow keys | Navigate the Settings page |

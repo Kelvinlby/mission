@@ -9,6 +9,8 @@ pub enum ClientMessage {
     Stop,
     Close,
     Detach,
+    // Appended so an older supervisor keeps decoding the variants above.
+    Restart,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +26,10 @@ pub enum ServerMessage {
     },
     Exited(Option<i32>),
     Error(String),
+    // Appended so an older client keeps decoding the variants above.
+    Restarted {
+        pid: u32,
+    },
 }
 
 pub fn send<T: Serialize>(writer: &mut impl Write, message: &T) -> Result<()> {
