@@ -97,7 +97,9 @@ fn spawn_child(command: &[String], size: PtySize, working_dir: &Path) -> Result<
 
 impl Runtime {
     fn lock_client(&self) -> std::sync::MutexGuard<'_, Option<UnixStream>> {
-        self.client.lock().unwrap_or_else(|error| error.into_inner())
+        self.client
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
     }
 
     /// Pump one child's output into the log, the transcript and the attached
@@ -257,7 +259,11 @@ impl Runtime {
     }
 
     fn mark_log_rerun(&self) {
-        if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(&self.log_path) {
+        if let Ok(mut log) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log_path)
+        {
             let _ = log.write_all(b"\r\n\r\n-- rerun --\r\n\r\n");
         }
     }
@@ -641,7 +647,9 @@ mod tests {
             replayed.extend(bytes);
         }
         assert_eq!(
-            String::from_utf8_lossy(&replayed).matches("RUN-MARKER").count(),
+            String::from_utf8_lossy(&replayed)
+                .matches("RUN-MARKER")
+                .count(),
             1,
             "the replayed transcript still contains the previous run"
         );

@@ -516,16 +516,11 @@ fn save_log(app: &App) -> Result<PathBuf> {
         anyhow::bail!("this session has no log yet");
     }
     let directory = save_directory(&app.config);
-    fs::create_dir_all(&directory)
-        .with_context(|| format!("create {}", directory.display()))?;
+    fs::create_dir_all(&directory).with_context(|| format!("create {}", directory.display()))?;
     let target = directory.join(format!("{}-{}.log", app.entry.id, file_timestamp()));
     let raw = fs::read(&source).with_context(|| format!("read {}", source.display()))?;
     // The command mission was given, then a separator, then the transcript itself.
-    let contents = format!(
-        "{}\n---\n{}",
-        app.entry.command_display(),
-        plain_text(&raw)
-    );
+    let contents = format!("{}\n---\n{}", app.entry.command_display(), plain_text(&raw));
     fs::write(&target, contents).with_context(|| format!("write {}", target.display()))?;
     Ok(target)
 }
@@ -955,8 +950,7 @@ fn draw_terminal(frame: &mut Frame, area: Rect, app: &mut App) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let gutter = timestamp_gutter(&app.config);
-    let columns =
-        Layout::horizontal([Constraint::Length(gutter), Constraint::Min(1)]).split(inner);
+    let columns = Layout::horizontal([Constraint::Length(gutter), Constraint::Min(1)]).split(inner);
     app.terminal_area = columns[1];
     if gutter > 0 {
         let width = usize::from(gutter - 1);
@@ -1885,7 +1879,10 @@ mod input_tests {
         }
 
         assert!(shapes.iter().all(|(peak, _)| *peak > 80), "{shapes:?}");
-        assert!(shapes.windows(2).all(|pair| pair[0] == pair[1]), "{shapes:?}");
+        assert!(
+            shapes.windows(2).all(|pair| pair[0] == pair[1]),
+            "{shapes:?}"
+        );
     }
 
     #[test]
@@ -2005,7 +2002,11 @@ mod input_tests {
         );
         assert!(written.starts_with(&directory));
         assert!(
-            written.file_name().unwrap().to_string_lossy().starts_with("save-test-"),
+            written
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("save-test-"),
             "unexpected file name: {}",
             written.display()
         );
