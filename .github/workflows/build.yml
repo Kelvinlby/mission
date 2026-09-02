@@ -1,0 +1,53 @@
+name: Build
+
+on:
+  push:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux
+            bin: mission
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: macos
+            bin: mission
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows
+            bin: mission.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Set short SHA
+        shell: bash
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-${{ env.SHORT_SHA }}-${{ matrix.platform }}
+          path: target/${{ matrix.target }}/release/${{ matrix.bin }}
+          retention-days: 7
