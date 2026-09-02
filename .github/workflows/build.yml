@@ -20,10 +20,6 @@ jobs:
             target: aarch64-apple-darwin
             platform: macos
             bin: mission
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            platform: windows
-            bin: mission.exe
 
     runs-on: ${{ matrix.os }}
 
