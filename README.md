@@ -1,5 +1,7 @@
 # mission
 
+[![Build](https://github.com/Kelvinlby/mission/actions/workflows/build.yml/badge.svg)](https://github.com/Kelvinlby/mission/actions/workflows/build.yml)
+
 `mission` runs a command in a real pseudo-terminal, keeps it alive after the dashboard is closed, and provides a modern terminal UI for interaction and resource monitoring.
 
 ```console
