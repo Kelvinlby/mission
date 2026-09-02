@@ -13,7 +13,7 @@ use std::{
     io::{Read, Write},
     os::unix::fs::PermissionsExt,
     os::unix::net::{UnixListener, UnixStream},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -35,6 +35,7 @@ struct OutputChunk {
 #[derive(Clone)]
 struct Runtime {
     command: Vec<String>,
+    working_dir: PathBuf,
     log_path: PathBuf,
     client: Arc<Mutex<Option<UnixStream>>>,
     transcript: Arc<Mutex<VecDeque<OutputChunk>>>,
@@ -66,11 +67,14 @@ fn default_pty_size() -> PtySize {
     }
 }
 
-fn spawn_child(command: &[String], size: PtySize) -> Result<StartedChild> {
+fn spawn_child(command: &[String], size: PtySize, working_dir: &Path) -> Result<StartedChild> {
     let pty = native_pty_system().openpty(size)?;
     let program = compatible_program(&command[0]);
     let mut builder = CommandBuilder::new(program.as_ref());
     builder.args(&command[1..]);
+    // Without this the child inherits nothing and portable-pty starts it in the
+    // home directory instead of where mission was invoked.
+    builder.cwd(working_dir);
     builder.env_remove("MISSION_SUPERVISOR");
     builder.env("MISSION_ACTIVE_SESSION", "1");
     builder.env("TERM", "xterm-256color");
@@ -210,7 +214,7 @@ impl Runtime {
                 writer,
                 master,
                 pid,
-            } = match spawn_child(&runtime.command, size) {
+            } = match spawn_child(&runtime.command, size, &runtime.working_dir) {
                 Ok(started) => started,
                 Err(error) => {
                     runtime.fail_restart(&format!("rerun failed: {error}"));
@@ -267,13 +271,16 @@ pub fn run(session_dir: PathBuf, command: Vec<String>) -> Result<()> {
     let socket_path = session_dir.join("control.sock");
     let _ = fs::remove_file(&socket_path);
 
+    // The supervisor is spawned from the mission process and never changes
+    // directory, so its own cwd is the directory the user launched from.
+    let working_dir = env::current_dir().context("resolve the launch directory")?;
     let StartedChild {
         child,
         reader,
         writer,
         master,
         pid,
-    } = spawn_child(&command, default_pty_size())?;
+    } = spawn_child(&command, default_pty_size(), &working_dir)?;
 
     let created_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let entry = SessionEntry {
@@ -296,6 +303,7 @@ pub fn run(session_dir: PathBuf, command: Vec<String>) -> Result<()> {
     listener.set_nonblocking(true)?;
     let runtime = Runtime {
         command: command.clone(),
+        working_dir,
         log_path: entry.log_path(),
         client: Arc::new(Mutex::new(None)),
         transcript: Arc::new(Mutex::new(VecDeque::new())),
@@ -644,6 +652,75 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         assert!(!dir.exists(), "closing did not remove the rerun session");
+    }
+
+    fn read_until(stream: &mut UnixStream, marker: &str) -> String {
+        let mut out = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while std::time::Instant::now() < deadline
+            && !String::from_utf8_lossy(&out).contains(marker)
+        {
+            match protocol::receive::<ServerMessage>(stream) {
+                Ok(ServerMessage::Output { bytes, .. }) => out.extend(bytes),
+                Ok(ServerMessage::Exited(_)) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    #[test]
+    fn commands_run_in_the_directory_mission_was_launched_from() {
+        let expected = env::current_dir().unwrap().canonicalize().unwrap();
+        let dir = test_dir("cwd");
+        let supervisor_dir = dir.clone();
+        thread::spawn(move || {
+            let _ = run(
+                supervisor_dir,
+                vec![
+                    "/bin/bash".into(),
+                    "-c".into(),
+                    "echo CWD=[$(pwd -P)]; sleep 30".into(),
+                ],
+            );
+        });
+
+        let mut stream = wait_for_socket(&dir);
+        assert!(matches!(
+            protocol::receive::<ServerMessage>(&mut stream).unwrap(),
+            ServerMessage::Hello { .. }
+        ));
+        let marker = format!("CWD=[{}]", expected.display());
+        let first = read_until(&mut stream, &marker);
+        assert!(
+            first.contains(&marker),
+            "expected {marker} in the first run, got: {first}"
+        );
+
+        // A rerun must land in the same directory, not the supervisor's fallback.
+        protocol::send(&mut stream, &ClientMessage::Restart).unwrap();
+        let mut restarted = false;
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while std::time::Instant::now() < deadline && !restarted {
+            match protocol::receive::<ServerMessage>(&mut stream) {
+                Ok(ServerMessage::Restarted { .. }) => restarted = true,
+                Ok(ServerMessage::Error(error)) => panic!("rerun reported: {error}"),
+                Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+        assert!(restarted, "the supervisor never reported a rerun");
+        let second = read_until(&mut stream, &marker);
+        assert!(
+            second.contains(&marker),
+            "expected {marker} after the rerun, got: {second}"
+        );
+
+        protocol::send(&mut stream, &ClientMessage::Close).unwrap();
+        let cleanup = std::time::Instant::now() + Duration::from_secs(6);
+        while dir.exists() && std::time::Instant::now() < cleanup {
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]
