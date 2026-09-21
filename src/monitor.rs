@@ -46,12 +46,10 @@ impl Histories {
         push(&mut self.global_cpu, sample.global_cpu);
         push(&mut self.global_memory, sample.global_memory);
         push(&mut self.process_cpu, sample.process_cpu);
-        let process_mem_percent = if sample.memory_total == 0 {
-            0.0
-        } else {
-            sample.process_memory as f64 * 100.0 / sample.memory_total as f64
-        };
-        push(&mut self.process_memory, process_mem_percent);
+        push(
+            &mut self.process_memory,
+            percent(sample.process_memory, sample.memory_total),
+        );
         while self.gpu.len() < sample.gpus.len() {
             self.gpu.push(VecDeque::new());
             self.vram.push(VecDeque::new());
@@ -103,9 +101,11 @@ impl Monitor {
         for pid in &descendants {
             if let Some(process) = self.system.process(*pid) {
                 process_cpu += process.cpu_usage() as f64;
-                process_memory += process.memory();
+                process_memory += process_memory_bytes(*pid, process);
             }
         }
+        // PSS never exceeds physical usage; RSS fallback can, so clamp either way.
+        let process_memory = process_memory.min(memory_used);
         let gpus = self
             .nvml
             .as_ref()
@@ -122,6 +122,21 @@ impl Monitor {
             gpus,
         }
     }
+}
+
+/// Memory attributable to one process. Prefers PSS from `smaps_rollup`, which
+/// splits shared pages (libraries, forked copy-on-write pages, shm) evenly among
+/// the processes mapping them so a sum over a tree stays physically meaningful.
+/// Falls back to RSS when the file is unreadable (foreign user, hidepid, non-Linux).
+fn process_memory_bytes(pid: Pid, process: &sysinfo::Process) -> u64 {
+    pss_bytes(pid).unwrap_or_else(|| process.memory())
+}
+
+fn pss_bytes(pid: Pid) -> Option<u64> {
+    let text = std::fs::read_to_string(format!("/proc/{}/smaps_rollup", pid.as_u32())).ok()?;
+    let line = text.lines().find(|line| line.starts_with("Pss:"))?;
+    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kib * 1024)
 }
 
 fn descendants(system: &System, root: Pid) -> HashSet<Pid> {
@@ -173,7 +188,8 @@ fn gpu_samples(
                 nvml_wrapper::enums::device::UsedGpuMemory::Used(bytes) => Some(bytes),
                 nvml_wrapper::enums::device::UsedGpuMemory::Unavailable => None,
             })
-            .sum();
+            .sum::<u64>()
+            .min(memory.used);
         let mut process_gpu_percent = 0.0;
         if let Ok(samples) = device.process_utilization_stats(timestamps[index as usize]) {
             for sample in samples {
@@ -227,7 +243,7 @@ fn percent(used: u64, total: u64) -> f64 {
     if total == 0 {
         0.0
     } else {
-        used as f64 * 100.0 / total as f64
+        (used as f64 * 100.0 / total as f64).min(100.0)
     }
 }
 

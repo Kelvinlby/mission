@@ -1201,7 +1201,7 @@ fn percent_of(used: u64, total: u64) -> f64 {
     if total == 0 {
         0.0
     } else {
-        used as f64 * 100.0 / total as f64
+        (used as f64 * 100.0 / total as f64).min(100.0)
     }
 }
 
